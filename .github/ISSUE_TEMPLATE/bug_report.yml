@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a conversion problem or crash
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: lakeboard-to-xmind version
+      placeholder: "0.1.0"
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "Python 3.12.3"
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample file
+      description: Attach a sanitized .lakeboard file if possible. Remove private data first.
