@@ -433,3 +433,254 @@ def _read_archive_bytes(archive: zipfile.ZipFile, name: str, default: bytes) -> 
         return archive.read(name)
     except KeyError:
         return default
+
+@dataclass(frozen=True)
+class ReverseConversionResult:
+    output: Path
+    root_title: str
+    topic_count: int
+    first_level_count: int
+
+
+def convert_xmind_to_lakeboard(
+    source: str | Path,
+    output: str | Path | None = None,
+    *,
+    overwrite: bool = True,
+    preserve_style: bool = True,
+) -> ReverseConversionResult:
+    source_path = Path(source)
+    output_path = source_path.with_suffix(".lakeboard") if output is None else Path(output)
+
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(f"Output already exists: {output_path}")
+
+    sheet = _read_xmind_sheet(source_path)
+    root_topic = sheet.get("rootTopic") or {}
+    right_count = _right_number(root_topic)
+    root = _topic_to_lakeboard(root_topic, is_root=True, preserve_style=preserve_style)
+    _restore_root_quadrants(root, right_count)
+
+    body: list[dict[str, Any]] = []
+    if preserve_style:
+        body.extend(_boundaries_to_groups(root_topic))
+    body.append(root)
+
+    lakeboard = {
+        "format": "lakeboard",
+        "type": "Board",
+        "version": "1.0",
+        "diagramData": {
+            "head": {
+                "version": "2.0.0",
+                "theme": {"name": "default"},
+                "rough": {"name": "default"},
+            },
+            "body": body,
+        },
+        "mode": "edit",
+        "viewportOption": "adapt",
+        "text": _lakeboard_text(body),
+    }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+    output_path.write_text(json.dumps(lakeboard, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+    return ReverseConversionResult(
+        output=output_path,
+        root_title=root.get("html", ""),
+        topic_count=_count_lakeboard_topics(root),
+        first_level_count=len(root.get("children", [])),
+    )
+
+
+def _read_xmind_sheet(source_path: Path) -> dict[str, Any]:
+    with zipfile.ZipFile(source_path, "r") as archive:
+        content = json.loads(archive.read("content.json").decode("utf-8-sig"))
+    if not content:
+        raise ValueError("No sheet found in XMind content.json")
+    return content[0]
+
+
+def _topic_to_lakeboard(
+    topic: dict[str, Any],
+    *,
+    is_root: bool = False,
+    preserve_style: bool = True,
+    inherited_edge_color: str | None = None,
+) -> dict[str, Any]:
+    style = topic.get("style", {}).get("properties", {}) if preserve_style else {}
+    edge_color = style.get("line-color") or inherited_edge_color
+    node: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "html": topic.get("title") or "未命名主题",
+        "children": [],
+        "border": _xmind_style_to_border(style),
+    }
+    if is_root:
+        node.update({"type": "mindmap", "x": 0, "y": 0, "layout": {"type": "standard", "direction": [1, 0]}})
+        node["defaultContentStyle"] = {"color": style.get("fo:color", "rgb(38, 38, 38)")}
+    else:
+        node["layout"] = {"quadrant": 1, "type": "standard", "direction": [1, 0], "quadrantConstraint": [1]}
+
+    if edge_color:
+        node["treeEdge"] = {"stroke": edge_color, "stroke-width": _line_width_to_number(style.get("line-width"), 2)}
+
+    if preserve_style:
+        icons = _xmind_markers_to_icons(topic.get("markers") or [])
+        if icons:
+            node["icons"] = icons
+
+    attached = (topic.get("children") or {}).get("attached", [])
+    node["children"] = [
+        _topic_to_lakeboard(child, preserve_style=preserve_style, inherited_edge_color=edge_color)
+        for child in attached
+    ]
+
+    if preserve_style:
+        node["children"].extend(_summaries_to_abstract_nodes(topic))
+    return node
+
+
+def _restore_root_quadrants(root: dict[str, Any], right_count: int) -> None:
+    children = root.get("children", [])
+    for index, child in enumerate(children):
+        quadrant = 1 if index < right_count else 2
+        child["layout"] = {
+            "quadrant": quadrant,
+            "type": "standard",
+            "direction": [1, 0],
+            "quadrantConstraint": [quadrant],
+        }
+
+
+def _xmind_style_to_border(style: dict[str, Any]) -> dict[str, Any]:
+    shape_class = style.get("shape-class", "")
+    if shape_class.endswith("rect") and not shape_class.endswith("roundedRect"):
+        shape = "rect"
+    else:
+        shape = "capsule"
+    return {
+        "shape": shape,
+        "fill": style.get("svg:fill", "#FFFFFF"),
+        "stroke": style.get("svg:stroke", "transparent"),
+        "stroke-width": _line_width_to_number(style.get("line-width"), 1),
+    }
+
+
+def _line_width_to_number(value: Any, default: int) -> int:
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        match = re.match(r"(\d+)", value.strip())
+        if match:
+            return int(match.group(1))
+    return default
+
+
+def _right_number(root_topic: dict[str, Any]) -> int:
+    try:
+        return int(root_topic.get("extensions", [{}])[0].get("content", [{}])[0].get("content", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _xmind_markers_to_icons(markers: list[dict[str, str]]) -> dict[str, int]:
+    icons: dict[str, int] = {}
+    reverse_flags = {value: key for key, value in FLAG_MARKERS.items()}
+    for marker in markers:
+        marker_id = marker.get("markerId", "")
+        if marker_id.startswith("priority-"):
+            try:
+                icons["priority"] = max(int(marker_id.split("-", 1)[1]) - 1, 0)
+            except ValueError:
+                pass
+        elif marker_id in reverse_flags:
+            icons["flag"] = reverse_flags[marker_id]
+    return icons
+
+
+def _summaries_to_abstract_nodes(topic: dict[str, Any]) -> list[dict[str, Any]]:
+    summary_topics = {item.get("id"): item for item in (topic.get("children") or {}).get("summary", [])}
+    nodes: list[dict[str, Any]] = []
+    for summary in topic.get("summaries") or []:
+        start, end = _parse_range(summary.get("range", "(0,0)"))
+        summary_topic = summary_topics.get(summary.get("topicId"), {})
+        style = summary.get("style", {}).get("properties", {})
+        node: dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "html": summary_topic.get("title") or "概要",
+            "children": [],
+            "start": start,
+            "end": max(end - 1, start),
+            "abstract": True,
+            "layout": {"quadrant": 1},
+            "border": {"shape": "rect", "stroke": "transparent", "fill": "#F5F5F5", "stroke-width": 2},
+            "treeEdge": {"stroke": style.get("line-color", "#BFBFBF"), "stroke-width": 2},
+        }
+        nodes.append(node)
+    return nodes
+
+
+def _boundaries_to_groups(root_topic: dict[str, Any]) -> list[dict[str, Any]]:
+    groups: list[dict[str, Any]] = []
+    for boundary in root_topic.get("boundaries") or []:
+        title = boundary.get("title")
+        if not title:
+            continue
+        groups.append(
+            {
+                "id": str(uuid.uuid4()),
+                "type": "group",
+                "children": [
+                    {
+                        "type": "geometry",
+                        "html": '<div style="text-align:center;">&nbsp;</div>',
+                        "shape": "rounded-rect",
+                        "category": "basic",
+                        "round": 10,
+                        "id": str(uuid.uuid4()),
+                        "stroke": {"color": "#D9D9D9", "style": "dash"},
+                        "fill": {"color": "transparent"},
+                    },
+                    {
+                        "type": "geometry",
+                        "html": f'<div style="text-align:center;"><span style="font-weight:bold; font-size:12px;">{html.escape(title)}</span></div>',
+                        "shape": "rounded-rect",
+                        "category": "basic",
+                        "round": 13.5,
+                        "id": str(uuid.uuid4()),
+                        "stroke": {"color": "transparent"},
+                        "fill": {"color": "#F5F5F5"},
+                    },
+                ],
+            }
+        )
+    return groups
+
+
+def _parse_range(value: str) -> tuple[int, int]:
+    match = re.match(r"\((\d+),(\d+)\)", value or "")
+    if not match:
+        return 0, 0
+    return int(match.group(1)), int(match.group(2))
+
+
+def _lakeboard_text(body: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+
+    def visit(node: dict[str, Any]) -> None:
+        if "html" in node:
+            parts.append(_clean_title(node.get("html", "")))
+        for child in node.get("children") or []:
+            visit(child)
+
+    for node in body:
+        visit(node)
+    return "".join(parts)
+
+
+def _count_lakeboard_topics(node: dict[str, Any]) -> int:
+    return 1 + sum(_count_lakeboard_topics(child) for child in node.get("children", []))

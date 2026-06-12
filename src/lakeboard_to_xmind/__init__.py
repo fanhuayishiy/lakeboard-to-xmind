@@ -1,3 +1,3 @@
-__all__ = ["convert_lakeboard_to_xmind", "ConversionResult"]
+__all__ = ["ConversionResult", "ReverseConversionResult", "convert_lakeboard_to_xmind", "convert_xmind_to_lakeboard"]
 
-from .converter import ConversionResult, convert_lakeboard_to_xmind
+from .converter import ConversionResult, ReverseConversionResult, convert_lakeboard_to_xmind, convert_xmind_to_lakeboard

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lakeboard-to-xmind"
 version = "0.1.0"
-description = "将语雀 Lakeboard 思维导图 .lakeboard 文件转换为 XMind .xmind 文件。"
+description = "语雀 Lakeboard 思维导图 .lakeboard 与 XMind .xmind 互转工具。"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -58,4 +58,5 @@ include = [
   "/CODE_OF_CONDUCT.md",
   "/SECURITY.md",
 ]
+
 
