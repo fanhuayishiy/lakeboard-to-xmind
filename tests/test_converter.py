@@ -83,7 +83,7 @@ class ConverterTests(unittest.TestCase):
             self.assertTrue(summary["abstract"])
             self.assertEqual(summary["html"], '<span style="font-weight:bold;">概要</span>')
             self.assertEqual(summary["start"], 0)
-            self.assertEqual(summary["end"], 1)
+            self.assertEqual(summary["end"], 2)
             self.assertEqual(groups[0]["children"][1]["html"], '<div style="text-align:center;"><span style="font-weight:bold; font-size:12px;">外框备注</span></div>')
         finally:
             for path in (xmind, lakeboard):
@@ -106,4 +106,5 @@ def _read_xmind_content(path: Path) -> list[dict]:
 
 if __name__ == "__main__":
     unittest.main()
+
 

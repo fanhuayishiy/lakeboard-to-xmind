@@ -615,7 +615,7 @@ def _summaries_to_abstract_nodes(topic: dict[str, Any]) -> list[dict[str, Any]]:
             "html": f'<span style="font-weight:bold;">{html.escape(summary_topic.get("title") or "概要")}</span>',
             "children": [],
             "start": start,
-            "end": max(end - 1, start),
+            "end": max(end, start),
             "abstract": True,
             "layout": {"quadrant": 1},
             "border": {"shape": "rect", "stroke": "transparent", "fill": "#F5F5F5", "stroke-width": 2},
@@ -706,10 +706,23 @@ def _assign_subtree_positions(node: dict[str, Any], x: float, y: float, directio
         _assign_subtree_positions(child, x + direction * 150, y + offset, direction)
 
 
+def _children_for_boundary_range(children: list[dict[str, Any]], start: int, end: int) -> list[dict[str, Any]]:
+    # XMind boundary ranges on root branches behave like inclusive spans whose end
+    # points at the branch before the visual boundary closes. For Lakeboard groups,
+    # include the following branch so a range like (4,5) covers branches 4, 5, and 6.
+    if not children:
+        return []
+    start_index = max(start - 1, 0) if start > 0 else 0
+    stop = min(end + 1, len(children))
+    if start_index >= len(children) or start_index >= stop:
+        return []
+    return children[start_index:stop]
+
+
 def _boundary_box(root: dict[str, Any], range_value: str) -> dict[str, float]:
     start, end = _parse_range(range_value)
     children = root.get("children", [])
-    selected = children[start : end + 1] if children else []
+    selected = _children_for_boundary_range(children, start, end) if children else []
     if not selected:
         selected = [child for child in children if (child.get("layout") or {}).get("quadrant") == 2]
     if not selected:
@@ -762,4 +775,7 @@ def _lakeboard_text(body: list[dict[str, Any]]) -> str:
 
 def _count_lakeboard_topics(node: dict[str, Any]) -> int:
     return 1 + sum(_count_lakeboard_topics(child) for child in node.get("children", []))
+
+
+
 
