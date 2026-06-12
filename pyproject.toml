@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lakeboard-to-xmind"
 version = "0.1.0"
-description = "Convert Youzan Lakeboard .lakeboard mind maps into XMind .xmind files."
+description = "将语雀 Lakeboard 思维导图 .lakeboard 文件转换为 XMind .xmind 文件。"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -15,7 +15,7 @@ authors = [
 maintainers = [
   { name = "fhysy", email = "1149505133@qq.com" }
 ]
-keywords = ["youzan", "lakeboard", "xmind", "mindmap", "converter"]
+keywords = ["yuque", "lakeboard", "xmind", "mindmap", "converter", "语雀", "思维导图"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -36,10 +36,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/fhysy/lakeboard-to-xmind"
-Repository = "https://github.com/fhysy/lakeboard-to-xmind"
-Issues = "https://github.com/fhysy/lakeboard-to-xmind/issues"
-Changelog = "https://github.com/fhysy/lakeboard-to-xmind/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/fanhuayishiy/lakeboard-to-xmind"
+Repository = "https://github.com/fanhuayishiy/lakeboard-to-xmind"
+Issues = "https://github.com/fanhuayishiy/lakeboard-to-xmind/issues"
+Changelog = "https://github.com/fanhuayishiy/lakeboard-to-xmind/blob/main/CHANGELOG.md"
 
 [project.scripts]
 lakeboard-to-xmind = "lakeboard_to_xmind.cli:main"
@@ -58,3 +58,4 @@ include = [
   "/CODE_OF_CONDUCT.md",
   "/SECURITY.md",
 ]
+
