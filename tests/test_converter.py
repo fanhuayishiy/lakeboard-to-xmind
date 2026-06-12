@@ -20,7 +20,7 @@ class ConverterTests(unittest.TestCase):
             result = convert_lakeboard_to_xmind(source, output)
 
             self.assertEqual(result.root_title, "web端")
-            self.assertEqual(result.topic_count, 6)
+            self.assertEqual(result.topic_count, 7)
             self.assertEqual(result.first_level_count, 2)
             self.assertTrue(output.exists())
 
@@ -52,6 +52,11 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(left["markers"][0]["markerId"], "flag-green")
             self.assertEqual(right["children"]["attached"][0]["title"], "关联展区")
             self.assertEqual(right["children"]["attached"][1]["title"], "二维码")
+            self.assertEqual(right["children"]["summary"][0]["title"], "概要")
+            self.assertEqual(right["summaries"][0]["range"], "(0,2)")
+            self.assertEqual(right["summaries"][0]["topicId"], right["children"]["summary"][0]["id"])
+            self.assertEqual(root["boundaries"][0]["title"], "外框备注")
+            self.assertEqual(root["boundaries"][0]["range"], "(1,1)")
         finally:
             if output.exists():
                 output.unlink()
@@ -59,3 +64,4 @@ class ConverterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

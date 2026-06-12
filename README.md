@@ -12,7 +12,7 @@ Lakeboard files are JSON documents used by Youzan's Lakeboard whiteboard/mind-ma
 
 - Converts Youzan Lakeboard mind map nodes to XMind topics.
 - Preserves title hierarchy, child order, and left/right branch layout.
-- Preserves common Lakeboard visual styling, including topic fill colors, branch line colors, line widths, rounded topic shapes, and priority/flag markers where XMind supports them.
+- Preserves common Lakeboard visual styling, including topic fill colors, branch line colors, line widths, rounded topic shapes, priority/flag markers, summaries, and boundaries where XMind supports them.
 - Cleans HTML tags, `<br>`, zero-width characters, non-breaking spaces, and HTML entities from titles.
 - Supports a template `.xmind` file for better compatibility with strict XMind versions.
 - Writes the common XMind package entries: `content.json`, `metadata.json`, `manifest.json`, `content.xml`, and `Thumbnails/thumbnail.png`.
@@ -94,7 +94,7 @@ python -m build
 
 This project targets the Lakeboard mind map shape observed in Youzan Lakeboard exports. Lakeboard may contain other board elements; only the first `mindmap` root is converted.
 
-The converter preserves common mind-map styling fields. Advanced canvas-only decorations, such as freeform outer rectangles or some summary braces, may not have a one-to-one XMind equivalent and are handled conservatively.
+The converter preserves common mind-map styling fields. Lakeboard `abstract` nodes are converted to XMind summaries, and simple grouped outer-note shapes are converted to XMind boundaries. Advanced canvas-only decorations that do not have a one-to-one XMind equivalent are handled conservatively.
 
 XMind is a ZIP-based format. Newer XMind versions primarily read `content.json`; older or stricter builds may expect compatibility entries. Use `--template` with a known-good `.xmind` if you need exact compatibility with a specific XMind version.
 
@@ -115,4 +115,5 @@ MIT. See [LICENSE](LICENSE).
 ## Trademark Notice
 
 Youzan, Lakeboard, and XMind are trademarks of their respective owners. This project is independent and is not affiliated with or endorsed by Youzan or XMind.
+
 

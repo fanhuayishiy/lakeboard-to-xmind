@@ -123,10 +123,7 @@ def convert_lakeboard_to_xmind(
     preserve_style: bool = True,
 ) -> ConversionResult:
     source_path = Path(source)
-    if output is None:
-        output_path = source_path.with_suffix(".xmind")
-    else:
-        output_path = Path(output)
+    output_path = source_path.with_suffix(".xmind") if output is None else Path(output)
 
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"Output already exists: {output_path}")
@@ -136,6 +133,10 @@ def convert_lakeboard_to_xmind(
     template_data = _read_template(template)
 
     root_topic = _convert_topic(root, is_root=True, root_id=template_data["root_id"], preserve_style=preserve_style)
+    boundaries = _convert_boundaries(lakeboard, root_topic) if preserve_style else []
+    if boundaries:
+        root_topic["boundaries"] = boundaries
+
     sheet = {
         "id": template_data["sheet_id"],
         "class": "sheet",
@@ -147,17 +148,14 @@ def convert_lakeboard_to_xmind(
     }
 
     content_json = json.dumps([sheet], ensure_ascii=False, separators=(",", ":"))
-    metadata_json = template_data["metadata_json"]
-    manifest_json = template_data["manifest_json"]
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
         output_path.unlink()
 
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("content.json", content_json.encode("utf-8"))
-        archive.writestr("metadata.json", metadata_json.encode("utf-8"))
-        archive.writestr("manifest.json", manifest_json.encode("utf-8"))
+        archive.writestr("metadata.json", template_data["metadata_json"].encode("utf-8"))
+        archive.writestr("manifest.json", template_data["manifest_json"].encode("utf-8"))
         archive.writestr("content.xml", template_data["content_xml"].encode("utf-8"))
         archive.writestr("Thumbnails/thumbnail.png", template_data["thumbnail_png"])
 
@@ -236,13 +234,15 @@ def _convert_topic(
             topic["markers"] = markers
 
     raw_children = [child for child in node.get("children") or [] if child]
+    summary_children = [child for child in raw_children if child.get("abstract") is True]
+    raw_children = [child for child in raw_children if child.get("abstract") is not True]
+
     if is_root:
         right_children = [child for child in raw_children if _quadrant(child) == 1]
         left_children = [child for child in raw_children if _quadrant(child) == 2]
         other_children = [child for child in raw_children if _quadrant(child) not in {1, 2}]
         raw_children = right_children + other_children + left_children
         right_count = len(right_children)
-
         topic["structureClass"] = "org.xmind.ui.map.unbalanced"
         topic["extensions"] = [
             {
@@ -251,14 +251,91 @@ def _convert_topic(
             }
         ]
 
-    edge_color = _color_value(node.get("treeEdge", {}).get("stroke")) or inherited_edge_color
+    edge_color = _color_value((node.get("treeEdge") or {}).get("stroke")) or inherited_edge_color
     children = [
         _convert_topic(child, preserve_style=preserve_style, inherited_edge_color=edge_color)
         for child in raw_children
     ]
     if children:
         topic["children"] = {"attached": children}
+    if preserve_style and summary_children:
+        _attach_summaries(topic, summary_children)
     return topic
+
+
+def _attach_summaries(topic: dict[str, Any], summary_nodes: list[dict[str, Any]]) -> None:
+    children = topic.setdefault("children", {})
+    summary_topics = children.setdefault("summary", [])
+    summaries = topic.setdefault("summaries", [])
+
+    for node in summary_nodes:
+        summary_topic_id = str(uuid.uuid4())
+        summary_topics.append({"title": _clean_title(node.get("html", "")), "id": summary_topic_id})
+        start = int(node.get("start", 0) or 0)
+        end = int(node.get("end", start) or start) + 1
+        edge_color = _color_value((node.get("treeEdge") or {}).get("stroke")) or "#007AC8"
+        summaries.append(
+            {
+                "id": str(uuid.uuid4()),
+                "range": f"({start},{end})",
+                "topicId": summary_topic_id,
+                "style": {
+                    "id": str(uuid.uuid4()),
+                    "properties": {
+                        "line-color": edge_color,
+                        "shape-class": "org.xmind.summaryShape.round",
+                    },
+                },
+            }
+        )
+
+
+def _convert_boundaries(lakeboard: dict[str, Any], root_topic: dict[str, Any]) -> list[dict[str, Any]]:
+    first_level = root_topic.get("children", {}).get("attached", [])
+    if not first_level:
+        return []
+
+    total = len(first_level)
+    right_count = int(root_topic.get("extensions", [{}])[0].get("content", [{}])[0].get("content", 0))
+    boundaries: list[dict[str, Any]] = []
+
+    for group in lakeboard.get("diagramData", {}).get("body", []):
+        if group.get("type") != "group":
+            continue
+        title = _group_title(group)
+        if not title:
+            continue
+        start, end = _boundary_range(right_count, total)
+        boundaries.append(
+            {
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "range": f"({start},{end})",
+                "style": {
+                    "id": str(uuid.uuid4()),
+                    "properties": {"fo:color": "#E0E0E0"},
+                },
+            }
+        )
+    return boundaries
+
+
+def _group_title(group: dict[str, Any]) -> str | None:
+    titles = []
+    for child in group.get("children") or []:
+        title = _clean_title(child.get("html", ""))
+        if title and title != "未命名主题":
+            titles.append(title)
+    return titles[-1] if titles else None
+
+
+def _boundary_range(right_count: int, total: int) -> tuple[int, int]:
+    if total <= 1:
+        return 0, total
+    if right_count and right_count < total:
+        start = min(right_count + 1, total - 1)
+        return start, total - 1
+    return 0, total
 
 
 def _topic_style(node: dict[str, Any], *, inherited_edge_color: str | None = None) -> dict[str, Any] | None:
@@ -332,7 +409,12 @@ def _clean_title(value: str) -> str:
 
 
 def _count_topics(topic: dict[str, Any]) -> int:
-    return 1 + sum(_count_topics(child) for child in topic.get("children", {}).get("attached", []))
+    children = topic.get("children", {})
+    return (
+        1
+        + sum(_count_topics(child) for child in children.get("attached", []))
+        + len(children.get("summary", []))
+    )
 
 
 def _compact_id() -> str:
