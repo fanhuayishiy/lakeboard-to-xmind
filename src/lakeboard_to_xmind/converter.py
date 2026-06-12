@@ -91,6 +91,19 @@ DEFAULT_THEME = {
 DEFAULT_STYLE = {"id": "75d1ec30-bcd7-4d95-b1e1-9f9942556ba7", "properties": {"svg:fill": "#FFFFFF"}}
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"[ \t\r\n]+")
+SHAPE_CLASS = {
+    "capsule": "org.xmind.topicShape.roundedRect",
+    "rounded-rect": "org.xmind.topicShape.roundedRect",
+    "rect": "org.xmind.topicShape.rect",
+}
+FLAG_MARKERS = {
+    1: "flag-red",
+    2: "flag-yellow",
+    3: "flag-green",
+    4: "flag-blue",
+    5: "flag-purple",
+    6: "flag-gray",
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,7 @@ def convert_lakeboard_to_xmind(
     *,
     template: str | Path | None = None,
     overwrite: bool = True,
+    preserve_style: bool = True,
 ) -> ConversionResult:
     source_path = Path(source)
     if output is None:
@@ -121,7 +135,7 @@ def convert_lakeboard_to_xmind(
     root = _find_mindmap_root(lakeboard)
     template_data = _read_template(template)
 
-    root_topic = _convert_topic(root, is_root=True, root_id=template_data["root_id"])
+    root_topic = _convert_topic(root, is_root=True, root_id=template_data["root_id"], preserve_style=preserve_style)
     sheet = {
         "id": template_data["sheet_id"],
         "class": "sheet",
@@ -198,7 +212,14 @@ def _read_template(template: str | Path | None) -> dict[str, Any]:
         }
 
 
-def _convert_topic(node: dict[str, Any], *, is_root: bool = False, root_id: str | None = None) -> dict[str, Any]:
+def _convert_topic(
+    node: dict[str, Any],
+    *,
+    is_root: bool = False,
+    root_id: str | None = None,
+    preserve_style: bool = True,
+    inherited_edge_color: str | None = None,
+) -> dict[str, Any]:
     topic: dict[str, Any] = {
         "id": root_id if is_root and root_id else str(uuid.uuid4()),
     }
@@ -206,19 +227,99 @@ def _convert_topic(node: dict[str, Any], *, is_root: bool = False, root_id: str 
         topic["class"] = "topic"
     topic["title"] = _clean_title(node.get("html", ""))
 
+    if preserve_style:
+        style = _topic_style(node, inherited_edge_color=inherited_edge_color)
+        if style:
+            topic["style"] = style
+        markers = _topic_markers(node)
+        if markers:
+            topic["markers"] = markers
+
+    raw_children = [child for child in node.get("children") or [] if child]
     if is_root:
+        right_children = [child for child in raw_children if _quadrant(child) == 1]
+        left_children = [child for child in raw_children if _quadrant(child) == 2]
+        other_children = [child for child in raw_children if _quadrant(child) not in {1, 2}]
+        raw_children = right_children + other_children + left_children
+        right_count = len(right_children)
+
         topic["structureClass"] = "org.xmind.ui.map.unbalanced"
         topic["extensions"] = [
             {
-                "content": [{"content": "0", "name": "right-number"}],
+                "content": [{"content": str(right_count), "name": "right-number"}],
                 "provider": "org.xmind.ui.map.unbalanced",
             }
         ]
 
-    children = [_convert_topic(child) for child in node.get("children") or [] if child]
+    edge_color = _color_value(node.get("treeEdge", {}).get("stroke")) or inherited_edge_color
+    children = [
+        _convert_topic(child, preserve_style=preserve_style, inherited_edge_color=edge_color)
+        for child in raw_children
+    ]
     if children:
         topic["children"] = {"attached": children}
     return topic
+
+
+def _topic_style(node: dict[str, Any], *, inherited_edge_color: str | None = None) -> dict[str, Any] | None:
+    properties: dict[str, str] = {}
+    border = node.get("border") or {}
+    fill = _color_value(border.get("fill"))
+    stroke = _color_value(border.get("stroke"))
+    shape = border.get("shape")
+    edge = node.get("treeEdge") or {}
+    edge_color = _color_value(edge.get("stroke")) or inherited_edge_color
+    edge_width = edge.get("stroke-width") or border.get("stroke-width")
+    text_color = _color_value((node.get("defaultContentStyle") or {}).get("color"))
+
+    if fill:
+        properties["svg:fill"] = fill
+    if stroke:
+        properties["svg:stroke"] = stroke
+    if shape in SHAPE_CLASS:
+        properties["shape-class"] = SHAPE_CLASS[shape]
+    if edge_color:
+        properties["line-color"] = edge_color
+    if edge_width:
+        properties["line-width"] = f"{edge_width}pt"
+    if text_color:
+        properties["fo:color"] = text_color
+    if "font-weight:bold" in (node.get("html") or "").replace(" ", ""):
+        properties["fo:font-weight"] = "bold"
+
+    if not properties:
+        return None
+    return {"id": str(uuid.uuid4()), "properties": properties}
+
+
+def _topic_markers(node: dict[str, Any]) -> list[dict[str, str]]:
+    icons = node.get("icons") or {}
+    markers: list[dict[str, str]] = []
+    priority = icons.get("priority")
+    if isinstance(priority, int):
+        markers.append({"markerId": f"priority-{priority + 1}"})
+    flag = icons.get("flag")
+    if isinstance(flag, int) and flag in FLAG_MARKERS:
+        markers.append({"markerId": FLAG_MARKERS[flag]})
+    return markers
+
+
+def _quadrant(node: dict[str, Any]) -> int | None:
+    quadrant = (node.get("layout") or {}).get("quadrant")
+    return quadrant if isinstance(quadrant, int) else None
+
+
+def _color_value(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or value.lower() == "transparent":
+        return None
+    if value.startswith("rgb("):
+        numbers = [int(part.strip()) for part in value[4:-1].split(",")]
+        if len(numbers) == 3:
+            return "#" + "".join(f"{number:02X}" for number in numbers)
+    return value
 
 
 def _clean_title(value: str) -> str:

@@ -11,7 +11,8 @@ Lakeboard files are JSON documents used by Youzan's Lakeboard whiteboard/mind-ma
 ## Features
 
 - Converts Youzan Lakeboard mind map nodes to XMind topics.
-- Preserves title hierarchy and child order.
+- Preserves title hierarchy, child order, and left/right branch layout.
+- Preserves common Lakeboard visual styling, including topic fill colors, branch line colors, line widths, rounded topic shapes, and priority/flag markers where XMind supports them.
 - Cleans HTML tags, `<br>`, zero-width characters, non-breaking spaces, and HTML entities from titles.
 - Supports a template `.xmind` file for better compatibility with strict XMind versions.
 - Writes the common XMind package entries: `content.json`, `metadata.json`, `manifest.json`, `content.xml`, and `Thumbnails/thumbnail.png`.
@@ -47,6 +48,12 @@ lakeboard-to-xmind input.lakeboard -o output.xmind --template template.xmind
 
 Template mode is recommended when your XMind build rejects generic `.xmind` packages. The converter reuses the template's sheet/theme metadata, compatibility XML, manifest, and thumbnail, then replaces the actual topic tree.
 
+Disable style copying if you only want the hierarchy:
+
+```bash
+lakeboard-to-xmind input.lakeboard -o output.xmind --no-style
+```
+
 ## Python API
 
 ```python
@@ -65,7 +72,7 @@ print(result.topic_count)
 1. Parse the `.lakeboard` file as UTF-8 JSON.
 2. Find the first object in `diagramData.body` with `type == "mindmap"`.
 3. Recursively convert each Lakeboard node's `html` and `children` into XMind topics.
-4. Generate fresh XMind topic IDs, preserving only titles and hierarchy.
+4. Generate fresh XMind topic IDs and map common Lakeboard style fields to XMind topic style properties.
 5. Package the result as an `.xmind` ZIP archive.
 
 ## Development
@@ -87,6 +94,8 @@ python -m build
 
 This project targets the Lakeboard mind map shape observed in Youzan Lakeboard exports. Lakeboard may contain other board elements; only the first `mindmap` root is converted.
 
+The converter preserves common mind-map styling fields. Advanced canvas-only decorations, such as freeform outer rectangles or some summary braces, may not have a one-to-one XMind equivalent and are handled conservatively.
+
 XMind is a ZIP-based format. Newer XMind versions primarily read `content.json`; older or stricter builds may expect compatibility entries. Use `--template` with a known-good `.xmind` if you need exact compatibility with a specific XMind version.
 
 ## Roadmap
@@ -106,3 +115,4 @@ MIT. See [LICENSE](LICENSE).
 ## Trademark Notice
 
 Youzan, Lakeboard, and XMind are trademarks of their respective owners. This project is independent and is not affiliated with or endorsed by Youzan or XMind.
+
