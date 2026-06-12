@@ -460,10 +460,11 @@ def convert_xmind_to_lakeboard(
     right_count = _right_number(root_topic)
     root = _topic_to_lakeboard(root_topic, is_root=True, preserve_style=preserve_style)
     _restore_root_quadrants(root, right_count)
+    _assign_lakeboard_positions(root)
 
     body: list[dict[str, Any]] = []
     if preserve_style:
-        body.extend(_boundaries_to_groups(root_topic))
+        body.extend(_boundaries_to_groups(root_topic, root))
     body.append(root)
 
     lakeboard = {
@@ -611,25 +612,26 @@ def _summaries_to_abstract_nodes(topic: dict[str, Any]) -> list[dict[str, Any]]:
         style = summary.get("style", {}).get("properties", {})
         node: dict[str, Any] = {
             "id": str(uuid.uuid4()),
-            "html": summary_topic.get("title") or "概要",
+            "html": f'<span style="font-weight:bold;">{html.escape(summary_topic.get("title") or "概要")}</span>',
             "children": [],
             "start": start,
             "end": max(end - 1, start),
             "abstract": True,
             "layout": {"quadrant": 1},
             "border": {"shape": "rect", "stroke": "transparent", "fill": "#F5F5F5", "stroke-width": 2},
-            "treeEdge": {"stroke": style.get("line-color", "#BFBFBF"), "stroke-width": 2},
+            "treeEdge": {"stroke": "#BFBFBF", "stroke-width": 2},
         }
         nodes.append(node)
     return nodes
 
 
-def _boundaries_to_groups(root_topic: dict[str, Any]) -> list[dict[str, Any]]:
+def _boundaries_to_groups(root_topic: dict[str, Any], root: dict[str, Any]) -> list[dict[str, Any]]:
     groups: list[dict[str, Any]] = []
     for boundary in root_topic.get("boundaries") or []:
         title = boundary.get("title")
         if not title:
             continue
+        box = _boundary_box(root, boundary.get("range", ""))
         groups.append(
             {
                 "id": str(uuid.uuid4()),
@@ -642,8 +644,14 @@ def _boundaries_to_groups(root_topic: dict[str, Any]) -> list[dict[str, Any]]:
                         "category": "basic",
                         "round": 10,
                         "id": str(uuid.uuid4()),
+                        "x": box["x"],
+                        "y": box["y"],
+                        "width": box["width"],
+                        "height": box["height"],
+                        "rotate": 0,
                         "stroke": {"color": "#D9D9D9", "style": "dash"},
                         "fill": {"color": "transparent"},
+                        "zIndex": 0,
                     },
                     {
                         "type": "geometry",
@@ -652,14 +660,84 @@ def _boundaries_to_groups(root_topic: dict[str, Any]) -> list[dict[str, Any]]:
                         "category": "basic",
                         "round": 13.5,
                         "id": str(uuid.uuid4()),
+                        "x": box["x"] + 20,
+                        "y": box["y"] - 12.5,
+                        "width": 74.6831244140626,
+                        "height": 27,
+                        "rotate": 0,
                         "stroke": {"color": "transparent"},
                         "fill": {"color": "#F5F5F5"},
+                        "zIndex": 1,
                     },
                 ],
+                "zIndex": 2,
             }
         )
     return groups
 
+
+def _assign_lakeboard_positions(root: dict[str, Any]) -> None:
+    root.update({"x": 890.3662298828126, "y": 350.6250018554688, "zIndex": 100})
+    right_y = [230.0, 350.0, 470.0]
+    left_y = [170.0, 310.0, 450.0]
+    right_index = 0
+    left_index = 0
+    for child in root.get("children", []):
+        quadrant = (child.get("layout") or {}).get("quadrant")
+        if quadrant == 2:
+            y = left_y[min(left_index, len(left_y) - 1)]
+            left_index += 1
+            _assign_subtree_positions(child, 660.0, y, -1)
+        else:
+            y = right_y[min(right_index, len(right_y) - 1)]
+            right_index += 1
+            _assign_subtree_positions(child, 1120.0, y, 1)
+
+
+def _assign_subtree_positions(node: dict[str, Any], x: float, y: float, direction: int) -> None:
+    node["x"] = x
+    node["y"] = y
+    node.setdefault("width", 120)
+    node.setdefault("height", 36)
+    children = [child for child in node.get("children", []) if not child.get("abstract")]
+    count = len(children)
+    for index, child in enumerate(children):
+        offset = (index - (count - 1) / 2) * 52 if count else 0
+        _assign_subtree_positions(child, x + direction * 150, y + offset, direction)
+
+
+def _boundary_box(root: dict[str, Any], range_value: str) -> dict[str, float]:
+    start, end = _parse_range(range_value)
+    children = root.get("children", [])
+    selected = children[start : end + 1] if children else []
+    if not selected:
+        selected = [child for child in children if (child.get("layout") or {}).get("quadrant") == 2]
+    if not selected:
+        return {"x": 528.0, "y": 151.5, "width": 323.68310546875, "height": 301.6250018554688}
+
+    xs: list[float] = []
+    ys: list[float] = []
+    for child in selected:
+        _collect_positions(child, xs, ys)
+    if not xs or not ys:
+        return {"x": 528.0, "y": 151.5, "width": 323.68310546875, "height": 301.6250018554688}
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    return {
+        "x": min_x - 95,
+        "y": min_y - 45,
+        "width": max(max_x - min_x + 190, 280),
+        "height": max(max_y - min_y + 90, 160),
+    }
+
+
+def _collect_positions(node: dict[str, Any], xs: list[float], ys: list[float]) -> None:
+    if "x" in node and "y" in node:
+        xs.append(float(node["x"]))
+        ys.append(float(node["y"]))
+    for child in node.get("children", []):
+        if not child.get("abstract"):
+            _collect_positions(child, xs, ys)
 
 def _parse_range(value: str) -> tuple[int, int]:
     match = re.match(r"\((\d+),(\d+)\)", value or "")
@@ -684,3 +762,4 @@ def _lakeboard_text(body: list[dict[str, Any]]) -> str:
 
 def _count_lakeboard_topics(node: dict[str, Any]) -> int:
     return 1 + sum(_count_lakeboard_topics(child) for child in node.get("children", []))
+
